@@ -92,6 +92,8 @@ label.f{display:block;font-size:11px;font-weight:650;color:var(--ink-2);margin:0
 .row{display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end}
 .row>*{min-width:0}
 .grow{flex:1}
+.row>.f-item{flex:1 1 165px;min-width:165px}   /* wrap onto the next line rather than crush */
+@media(max-width:520px){ .row>.f-item{flex:1 1 100%;min-width:0} }
 
 /* ---------- cards ---------- */
 .card{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--shadow)}
@@ -3235,15 +3237,23 @@ const Render = {
         fld('Min rest between shifts (h)','<input type="number" id="s_rest" value="'+s.minRestHours+'">','grow')+
         fld('Max consecutive work days','<input type="number" id="s_cons" value="'+s.maxConsecutiveDays+'">','grow')+
       '</div>'+
+      '<div><button class="btn p" onclick="Flow.saveOps()">Save operation settings</button></div>'+
+    '</div></div>';
+
+    h+='<div class="card"><div class="hd"><h3>Servicing, fuel &amp; distance</h3></div><div class="bd grid" style="gap:12px">'+
       '<div class="row">'+
         fld('Warn before expiry (days)','<input type="number" id="s_exp" value="'+(s.expiryWarnDays||45)+'">','grow')+
         fld('Service every (km)','<input type="number" id="s_skm" value="'+(s.serviceEveryKm||10000)+'">','grow')+
-        fld('Road factor','<input type="number" id="s_rf" step="0.05" value="'+(s.roadFactor||1.35)+'">','grow')+
-        fld('Fuel price / litre','<input type="number" id="s_fp" step="0.01" value="'+(s.fuelPrice||2.60)+'">','grow')+
-        fld('Default L / 100 km','<input type="number" id="s_lp" step="0.5" value="'+(s.defaultLPer100||22)+'">','grow')+
         fld('or every (months)','<input type="number" id="s_smo" value="'+(s.serviceEveryMonths||6)+'">','grow')+
       '</div>'+
-      '<div><button class="btn p" onclick="Flow.saveOps()">Save operation settings</button></div>'+
+      '<div class="row">'+
+        fld('Fuel price / litre','<input type="number" id="s_fp" step="0.01" value="'+(s.fuelPrice||2.60)+'">','grow')+
+        fld('Default L / 100 km','<input type="number" id="s_lp" step="0.5" value="'+(s.defaultLPer100||22)+'">','grow')+
+        fld('Road factor','<input type="number" id="s_rf" step="0.05" value="'+(s.roadFactor||1.35)+'">','grow')+
+      '</div>'+
+      '<div class="tiny muted">Road tax, insurance and inspection warn this many days ahead. Servicing falls due on whichever comes '+
+      'first, distance or time. The road factor turns a straight-line distance between two addresses into a road distance.</div>'+
+      '<div><button class="btn p" onclick="Flow.saveOps()">Save these settings</button></div>'+
     '</div></div>';
 
     h+='<div class="card"><div class="hd"><h3>Pay &amp; overtime</h3>'+
@@ -3266,7 +3276,7 @@ const Render = {
       '<div><button class="btn p" onclick="Flow.savePay()">Save pay settings</button></div>'+
     '</div></div>';
 
-    h+='<div class="card"><div class="hd"><h3>Fixed monthly overheads</h3>'+
+    h+='<div class="card" style="grid-column:1/-1"><div class="hd"><h3>Fixed monthly overheads</h3>'+
       '<span class="tiny muted" style="margin-left:auto">'+Pay.money(Overheads.monthlyRunRate())+' a month</span>'+
       '<button class="btn sm p" style="margin-left:10px" onclick="Flow.overhead(null)">+ Add</button></div><div class="bd scroll">'+
       '<div class="tiny muted" style="margin-bottom:10px">The bills that arrive whether a wheel turns or not. They are spread across the '+
@@ -3292,7 +3302,7 @@ const Render = {
     }
     h+='</div></div>';
 
-    h+='<div class="card"><div class="hd"><h3>Shifts</h3>'+
+    h+='<div class="card" style="grid-column:1/-1"><div class="hd"><h3>Shifts</h3>'+
       '<button class="btn sm p" style="margin-left:auto" onclick="VIEW=\'regular\';Render.all()">Open Regular Jobs</button></div><div class="bd scroll">'+
       '<div class="tiny muted" style="margin-bottom:10px">Shifts belong to a regular job, so each contract can keep its own hours and running days. '+
       'Edit them under <b>Regular Jobs</b>.</div>'+
@@ -3353,7 +3363,7 @@ function expCell(d){
   return '<td class="tiny">'+esc(d)+(cls? ' <span class="pill '+cls+'">'+(n<0?'expired':n+'d')+'</span>':'')+'</td>';
 }
 function kpi(k,v,s,cls){ return '<div class="kpi '+(cls||'')+'"><div class="k">'+esc(k)+'</div><div class="v">'+esc(v)+'</div><div class="s">'+esc(s||'')+'</div></div>'; }
-function fld(label,input,cls){ return '<div class="'+(cls||'')+'"><label class="f">'+esc(label)+'</label>'+input+'</div>'; }
+function fld(label,input,cls){ return '<div class="f-item '+(cls||'')+'"><label class="f">'+esc(label)+'</label>'+input+'</div>'; }
 /* shift <select> grouped by regular job; shifts that do not run on `date` are marked */
 /* lorries that could take this shift, with the ones already committed marked */
 function lorryOptions(date, shiftId, did, selected){
@@ -4187,7 +4197,17 @@ const Flow = {
       kpi('Updated', plan.update, 'matched on registration','')+
       kpi('Warnings', plan.warnings.length, 'check these rows', plan.warnings.length?'warn':'')+
     '</div>';
-    if(!plan.odoCount){
+    if(plan.odoFlags && plan.odoFlags.length){
+      b+='<div class="alert bad"><b>'+plan.odoFlags.length+' mileage reading(s) look wrong and will not be imported.</b>'+
+        '<table class="tbl" style="margin:8px 0"><tbody>'+
+        plan.odoFlags.map(f=>'<tr><td><b>'+esc(f.reg)+'</b></td><td class="num">'+Number(f.value).toLocaleString()+' km</td>'+
+          '<td class="tiny">'+esc(f.reason)+'</td></tr>').join('')+
+        '</tbody></table>'+
+        '<label class="tiny" style="display:block"><input type="checkbox" id="_odoforce" style="width:auto"> '+
+        'Import them anyway — I have checked and these are correct</label>'+
+        '<div class="tiny" style="margin-top:6px">Everything else in these rows still imports; only the mileage is held back.</div></div>';
+    }
+    if(!plan.odoCount && !(plan.odoFlags||[]).length){
       b+='<div class="alert warn"><b>No mileage in this file.</b> '+
         (plan.hasOdoColumn? 'There is an odometer column but every row is blank.'
           : 'None of the columns carry an odometer reading'+
@@ -4224,10 +4244,12 @@ const Flow = {
     UI.open('Import '+(filename||'vehicle list')+' — '+plan.rows.length+' vehicles', b,
       '<button class="btn" onclick="UI.close()">Cancel</button>'+
       '<button class="btn p" id="_apply">Import '+plan.rows.length+' vehicles</button>', true);
-    $('#_apply').onclick=()=>Flow.applyVehicles($('#_mkdrv')? $('#_mkdrv').checked : false);
+    $('#_apply').onclick=()=>Flow.applyVehicles($('#_mkdrv')? $('#_mkdrv').checked : false,
+      $('#_odoforce')? $('#_odoforce').checked : false);
   },
-  applyVehicles(makeDrivers){
+  applyVehicles(makeDrivers, forceOdo){
     const plan=Flow._plan; if(!plan) return;
+    if(forceOdo) plan.rows.forEach(r=>{ if(r.suspectOdo){ r.rec.odo=r.suspectOdo; } });
     const writes=[]; let created=0, updated=0, linked=0, newDrivers=0;
     const madeDriver={};
     plan.rows.forEach(r=>{
@@ -4237,6 +4259,7 @@ const Flow = {
         roadTaxExp:'', insuranceExp:'', inspectionExp:'', lastServiceOdo:'', lastServiceDate:'', notes:'', odo:0};
       const next=Object.assign(base, r.rec, {id});
       if(r.existing) next.plate=r.existing.plate;   // keep a plate the planner has corrected
+      if(r.rec.odo>0){ next.odoSource='imported reading'; next.odoSetAt=todayISO(); }
       if(r.existing && r.existing.odo && !r.rec.odo) next.odo=r.existing.odo;   // never lose a known odometer
       writes.push(['vehicles/'+id, next]);
       r.existing? updated++ : created++;
@@ -4656,7 +4679,7 @@ function buildVehiclePlanFromRows(rows){
   const iGrp=col('groups','group','fleet','contract'), iSt=col('status'), iDrv=col('driver'),
         iScore=col('score'), iEng=col('engine type','engine'), iSpd=col('speed'),
         iLoc=col('location','last location'), iGeo=col('current geofence','geofence'),
-        iOdo=col('odometer','odo','mileage');
+        iOdo=col('current odometer','odometer','odo','mileage','miliage','milage','mileage (km)','distance','km');
   const byPlate={}; Object.values(S.vehicles).forEach(v=> byPlate[plateKey(v.plate)]=v);
   const drvByName={}; Object.values(S.drivers).forEach(d=> drvByName[norm(d.name).toLowerCase()]=d);
 
@@ -4706,10 +4729,37 @@ function buildVehiclePlanFromRows(rows){
       lastSeen: plan.stamp
     };
     const odo=get(iOdo);
-    if(odo && !isNaN(Number(odo.replace(/[^0-9.]/g,'')))){ rec.odo=Number(odo.replace(/[^0-9.]/g,'')); plan.odoCount++; }
+    if(odo && !isNaN(Number(odo.replace(/[^0-9.]/g,'')))){
+      const n=Number(odo.replace(/[^0-9.]/g,''));
+      if(n>0){ rec.odo=n; plan.odoCount++; }
+    }
     plan.rows.push({reg, key, name, rec, existing, driverName:drvName, driverIsSet, driver,
       action: existing? 'update':'create'});
     if(existing) plan.update++; else plan.create++;
+  });
+  /* An odometer is the one field where a wrong number does lasting damage — it
+     drives the service schedule and every cost-per-km figure. So sanity-check
+     the batch against itself and against what is already on record, and hold
+     back anything that cannot be true rather than writing it and hoping. */
+  const vals=plan.rows.map(r=>r.rec.odo).filter(v=>v>0).sort((x,y)=>x-y);
+  const median=vals.length? vals[Math.floor(vals.length/2)] : 0;
+  plan.odoFlags=[];
+  plan.rows.forEach(r=>{
+    const n=r.rec.odo; if(!(n>0)) return;
+    let reason=null;
+    if(median>0 && n > median*5)
+      reason='reads '+Math.round(n/median)+'× the fleet median of '+Math.round(median).toLocaleString()+' km';
+    else if(r.existing && Number(r.existing.odo)>0 && n < Number(r.existing.odo))
+      reason='lower than the '+Number(r.existing.odo).toLocaleString()+' km already on record';
+    else if(r.existing && Number(r.existing.odo)>0 && r.existing.lastSeen){
+      const days=Math.max(1, daysBetween(String(r.existing.lastSeen).slice(0,10), plan.stamp.slice(0,10)));
+      const perDay=(n-Number(r.existing.odo))/days;
+      if(perDay>1500) reason=Math.round(perDay).toLocaleString()+' km a day since the last reading';
+    }
+    if(reason){
+      plan.odoFlags.push({reg:r.reg, value:n, reason});
+      r.suspectOdo=n; delete r.rec.odo; plan.odoCount--;
+    }
   });
   return plan;
 }
