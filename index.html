@@ -300,6 +300,10 @@ html[data-theme="dark"] .viz, html[data-theme="dark"] .vlegend{ color-scheme:dar
     </nav>
     <div class="sidefoot">
       <div><span class="syncdot" id="syncDot"></span><span id="syncTxt">Local only</span></div>
+      <div class="seg" id="langSeg" style="margin-top:8px;width:100%">
+        <button type="button" data-lang="en" style="flex:1">English</button>
+        <button type="button" data-lang="zh" style="flex:1">中文</button>
+      </div>
       <div style="margin-top:6px;display:flex;gap:6px">
         <button class="btn sm gh" id="themeBtn" title="Toggle theme">◐ Theme</button>
         <button class="btn sm gh" onclick="window.print()">⎙ Print</button>
@@ -351,7 +355,9 @@ const DOW=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
 const MON=['January','February','March','April','May','June','July','August','September','October','November','December'];
 function dow(s){ return parseISO(s).getDay(); }
 function isWeekend(s){ const d=dow(s); return d===0||d===6; }
-function fmtDay(s){ const d=parseISO(s); return DOW[d.getDay()]+', '+d.getDate()+' '+MON[d.getMonth()].slice(0,3)+' '+d.getFullYear(); }
+function fmtDay(s){ const d=parseISO(s);
+  if(LANG==='zh') return d.getFullYear()+'年'+(d.getMonth()+1)+'月'+d.getDate()+'日 周'+DOW[d.getDay()];
+  return DOW[d.getDay()]+', '+d.getDate()+' '+MON[d.getMonth()].slice(0,3)+' '+d.getFullYear(); }
 function monthDays(y,m){ const out=[],d=new Date(y,m,1); while(d.getMonth()===m){ out.push(iso(d)); d.setDate(d.getDate()+1);} return out; }
 /* week key: week starting on settings.weekStart (0=Sun,1=Mon) */
 function weekStartOf(s){
@@ -363,7 +369,12 @@ function hoursBetween(a,b){ // "08:00","20:00" -> 12 ; overnight handled
   const [ah,am]=a.split(':').map(Number), [bh,bm]=b.split(':').map(Number);
   let h=(bh*60+bm)-(ah*60+am); if(h<=0) h+=1440; return h/60;
 }
-function toast(msg,ms){ const t=$('#toast'); t.textContent=msg; t.classList.add('on');
+function toast(msg,ms){ const t=$('#toast');
+  const key=String(msg);
+  const tr=(typeof I18N!=='undefined' && LANG==='zh')
+    ? (I18N.blocks[key]!==undefined? I18N.blocks[key] : I18N.t(key)) : null;
+  t.textContent = tr!==null && tr!==undefined ? tr : msg;
+  t.classList.add('on');
   clearTimeout(toast._t); toast._t=setTimeout(()=>t.classList.remove('on'), ms||2600); }
 
 /* ---------------------------- state -------------------------------- */
@@ -2107,6 +2118,739 @@ function consecutivePlan(plan,did,date){
   return n;
 }
 
+/* ============================ languages ==============================
+   English and 简体中文. The app is written in English and translated at
+   display time: after each render the visible text is swapped against a
+   dictionary. Nothing in the logic, the data or the exports depends on the
+   language, so switching can never alter a roster or a figure.          */
+let LANG = 'en';
+const DOW_EN=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+const DOW_ZH=['日','一','二','三','四','五','六'];
+const MON_EN=['January','February','March','April','May','June','July','August','September','October','November','December'];
+const MON_ZH=['1月','2月','3月','4月','5月','6月','7月','8月','9月','10月','11月','12月'];
+
+const I18N = {
+  /* whole paragraphs, keyed on their combined text */
+  blocks:{
+'Employment Act defaults':'雇佣法令默认值',
+'Road tax, insurance and inspection warn this many days ahead. Servicing falls due on whichever comes first, distance or time. The road factor turns a straight-line distance between two addresses into a road distance.':'路税、保险与年检会提前这么多天提醒。保养按里程或时间，以先到者为准。路程系数把两个地址之间的直线距离换算成实际路程。',
+'Local data is stored in this browser. Connect a shared database above to have several planners work on the same roster.':'数据存放在本浏览器。连接上方的共享数据库后，多位排班员可共用同一份排班表。',
+'lets you press “Sync now” instead of waiting for the 15-minute schedule':'可直接按「立即同步」，无需等待 15 分钟的定时同步',
+'Nothing recorded in this period.':'此期间没有记录。',
+'No covers recorded yet. Mark a driver MC on the roster and assign a replacement.':'尚无顶班记录。在排班表上把司机标为病假，然后指派顶班司机。',
+'No distance or trips attributed to a lorry in this period. A job counts once it has a date, an assigned driver, and addresses that can be placed.':'此期间没有里程或趟数归属到车辆。任务需要有日期、指派司机，以及可识别的地址才会计入。',
+'No delivery jobs are attributed to a lorry this month. A job counts once it has a date, an assigned driver, and a collection and delivery address.':'本月没有配送任务归属到车辆。任务需要有日期、指派司机、提货与送达地址才会计入。',
+'None. Every rest day worked this month has been swapped for another day off — which is why there is nothing extra to pay for them.':'没有。本月所有上班的休息日都已换成其他休息日 — 因此无需额外支付。',
+'Two full fills with odometer readings are enough to measure a lorry. Until then the fleet default is used, and every figure that depends on it says so.':'两次带里程读数的满箱加油即可实测该车油耗。在此之前使用车队默认值，所有依赖它的数字都会注明。',
+'Nothing obvious. No movable overtime, no rest days owed, no repeat breakdowns, no idle lorries, and the shift pattern is not manufacturing overtime on its own.':'未发现明显问题：没有可调换的加班、没有欠还的休息日、没有重复故障、没有闲置车辆，班次安排本身也没有制造加班。',
+'Nothing expiring, nothing overdue, every shift manned, no driver over the overtime cap.':'没有即将到期项目，没有逾期事项，各班次人手齐备，无司机超出加班上限。',
+'These are estimates of what the same month would have cost with the problem removed, not guaranteed savings.':'这些是假设问题已解决时同月的成本估算，并非保证可省下的金额。',
+'No automatic feed yet. The lorry register is updated by importing the tracker CSV. To have Cartrack update it on its own, deploy the cartrack-sync folder that sits next to this file — the README walks through it.':'尚未设置自动同步。车辆登记目前靠导入定位系统的 CSV 更新。若要让 Cartrack 自动更新，请部署本文件旁的 cartrack-sync 文件夹 — README 内有步骤说明。',
+'Load a 12-driver demo fleet and generate this month\'s roster? Existing data will be replaced.':'载入 12 名司机的示范车队并生成本月排班？现有数据将被覆盖。',
+'Shifts belong to a regular job, so each contract can keep its own hours and running days. Edit them under Regular Jobs.':'班次隶属于固定业务，各合同可保留自己的时间与运行日。请在「固定业务」中编辑。',
+'Each regular job carries its own hours and its own running days. A weekday contract never pulls night-shift headcount into the plan, and Auto-plan only staffs a job on the days it actually runs.':'每项固定业务有自己的班次时间与运行日。只在平日运行的合同不会把夜班人力算进来，自动排班也只在实际运行日安排人手。',
+'The bills that arrive whether a wheel turns or not. They are spread across the calendar days of each month, so they show up in the daily, weekly, monthly and yearly cost charts.':'不论车辆是否行驶都要支付的账单。按每月日历天数摊分，因此会出现在日、周、月、年成本图表中。',
+'Nothing entered. Insurance, road tax, yard rental, licences, loan or lease payments, tracking subscription, office salaries — anything that does not depend on how much you drive.':'尚未录入。保险、路税、停车场租金、牌照、贷款或租赁、定位订阅、办公薪资 — 任何与行驶里程无关的固定支出。',
+'Value / month':'月金额',
+'Enter a basic salary and the hourly and overtime rates appear here.':'输入底薪后，这里会显示时薪与加班费率。',
+'Active — include in rosters':'在职 — 纳入排班',
+'Active — include in the roster':'启用 — 纳入排班',
+'Currently being paid':'目前仍在支付',
+'Had to be towed':'需要拖车',
+'This amount is per lorry, not for the whole fleet':'此金额为每辆车，而非全车队',
+'Also raise a workshop job and take the lorry off the road':'同时开维修工单并将车辆停驶',
+'Filled the tank right up — only full-to-full fills can measure consumption':'已加满油箱 — 只有满箱到满箱才能测算油耗',
+'Keep existing covers and swapped off days':'保留现有顶班与已调换的休息日',
+'Rather break a rest rule than leave a shift unmanned':'宁可违反休息规则，也不让班次无人当班',
+'One driver per line. Optional: Name, employee no, vehicle':'每行一名司机。可选格式：姓名, 工号, 车辆',
+'After saving, add the shifts this job needs. A job with no shifts is never rostered — so a contract that only runs 08:00–18:00 gets one shift, not three.':'保存后请添加此业务所需的班次。没有班次的业务不会被排班 — 只在 08:00–18:00 运行的合同只需一个班次，而非三个。',
+'An end time earlier than the start time means the shift runs past midnight. Add only the shifts this job actually needs — one 10-hour day shift is a complete job, it does not have to cover 24 hours.':'结束时间早于开始时间表示该班次跨越午夜。只添加此业务真正需要的班次 — 一个 10 小时的日班就是完整业务，不必覆盖 24 小时。',
+'While the job is open and today falls inside the off-road dates, the lorry counts as unavailable on the Today screen.':'工单未结且今天在停驶日期范围内时，「今日」页会把该车视为不可用。',
+'Cannot estimate — neither address recognised. Put the town or the postal code in the address, or type the distance in.':'无法估算 — 两个地址都无法识别。请在地址中加入区名或邮编，或直接输入距离。',
+'Drop the tracker export here — the columns from your system (Vehicle Name, Registration, Groups, Status, Driver, Score, Engine Type, Speed, Location) are recognised automatically. Every re-import refreshes the live status, group and driver; nothing in the workshop or breakdown history is touched.':'把定位系统导出的文件拖到这里 — 系统会自动识别各列（Vehicle Name、Registration、Groups、Status、Driver、Score、Engine Type、Speed、Location）。每次重新导入都会刷新实时状态、分组与司机；维修与故障记录不受影响。',
+'No file handy? Paste the table straight out of the Cartrack portal →':'手边没有文件？直接从 Cartrack 网页粘贴表格 →',
+'Open your fleet list in the Cartrack portal so the vehicles are on screen.':'在 Cartrack 网页打开车辆列表，让车辆显示在屏幕上。',
+'Select the table — click just before the first plate and shift-click after the last row, or Ctrl+A on the list.':'选中表格 — 在第一个车牌前点击，再按住 Shift 点击最后一行，或在列表上按 Ctrl+A。',
+'Copy with Ctrl+C, then click the box below and press Ctrl+V.':'按 Ctrl+C 复制，然后点击下方方框并按 Ctrl+V。',
+'The column headings come across with the table, so nothing needs mapping. Whatever columns the portal is showing get read — including odometer, if you add that column to the view first.':'表头会一起复制过来，因此无需手动对应字段。网页上显示的任何列都会被读取 — 包括里程表，只要先把该列加入视图。',
+'Fills duty, standby and off days for every active driver. MC, leave and locked cells are never touched.':'为每位在职司机安排当班、待命与休息日。病假、请假与已锁定的格子不会被改动。',
+'Fix it once, in the Firebase console:':'在 Firebase 控制台修复一次即可：',
+'Paste here…':'在此粘贴…',
+'Click the Rules tab':'点击「Rules」标签页',
+'then press Publish and reopen this file':'然后按 Publish 发布，并重新打开本文件',
+'Inside the existing "rules": { … } block, add this next to the octoCRM_v4 entry (mind the comma between entries):':'在现有的 "rules": { … } 区块内，于 octoCRM_v4 条目旁加入以下内容（注意条目之间的逗号）：',
+'This grants access to the roster branch only — OctoCRM\'s data is untouched, and the two apps stay on separate branches. Note that these rules are open to anyone holding the file, which is how OctoCRM is already set up; if you want it locked down, Firebase Authentication is the proper answer and I can wire it in.':'这只开放排班分支 — OctoCRM 的数据不受影响，两个应用各自独立。请注意：此规则对任何持有本文件的人开放，OctoCRM 目前也是如此设置；若要加强安全，正确做法是启用 Firebase 身份验证。',
+'A real reading is always better. If the Cartrack sync or the reminders page gives you the mileage, use that instead and leave this alone.':'实际读数永远更可靠。若 Cartrack 同步或提醒页面能提供里程，请优先使用，不要用这里的估算。',
+'This changes the lorry for this shift only. His usual lorry on the driver record stays as it is.':'这只更改此班次的车辆。司机档案中的常用车辆保持不变。',
+'Delete this?':'确定删除？',
+'That did not look like a table — make sure the whole list including the headings is selected.':'这看起来不是表格 — 请确认已选中整个列表，包括表头。',
+/* toast messages */
+'Saved':'已保存','Settings saved':'设置已保存','Pay settings saved':'工资设置已保存',
+'Driver saved':'司机已保存','Lorry saved':'车辆已保存','Shift saved':'班次已保存',
+'Job saved':'任务已保存','Fill saved':'加油记录已保存','Overhead saved':'固定开支已保存',
+'Workshop job saved':'维修工单已保存','Breakdown logged':'故障已记录','Sync URL saved':'同步网址已保存',
+'Regular job deleted':'固定业务已删除','Demo fleet loaded':'示范数据已载入','Data imported':'数据已导入',
+'All data erased':'所有数据已清空','Range cleared':'区间已清除','Rule copied':'规则已复制',
+'Name is required':'必须填写姓名','Give it a name':'请填写名称','Job name required':'必须填写任务名称',
+'Shift name required':'必须填写班次名称','Plate number required':'必须填写车牌号码',
+'How many litres?':'加了多少升？','Type the reading first':'请先输入读数',
+'Pick at least one day':'请至少选择一天','Check the date range':'请检查日期范围',
+'Add drivers first':'请先添加司机','Add a lorry first':'请先添加车辆','Create a regular job first':'请先创建固定业务',
+'Not a valid backup file':'不是有效的备份文件','databaseURL is required':'必须填写 databaseURL',
+'Connect to the shared database first':'请先连接共享数据库','Connected to shared database':'已连接共享数据库',
+'Pushed to shared database':'已推送到共享数据库','Set the sync URL in Settings first':'请先在设置中填写同步网址',
+'Asking Cartrack for the latest…':'正在向 Cartrack 请求最新数据…',
+'Selected — press Ctrl+C':'已选中 — 请按 Ctrl+C',
+'Roster generated — every shift is manned':'排班已生成 — 各班次人手齐备',
+'No swappable off day in the next 60 days — set one manually from Cover & Credits':'未来 60 天内没有可调换的休息日 — 请在「顶班与补休」中手动设定'
+  },
+  /* Values the app itself seeds — the three default shifts, the default
+     contract name, the demo vehicle classes. They live in the data, so a
+     shift Jordan renames stays exactly as he named it; only the ones this
+     file put there are translated. */
+  data:{
+    'Day':'日班','Afternoon':'中班','Night':'夜班','Morning':'早班','Evening':'晚班',
+    'Main operation':'主线运营',
+    '10ft lorry':'10尺货车','14ft lorry':'14尺货车','24ft lorry':'24尺货车',
+    'Van':'厢型车','Prime mover':'牽引车','Lorry':'货车',
+    'Service':'保养','Repair':'维修','Inspection':'年检','Breakdown':'故障','Off road':'停驶'
+  },
+  blockPatterns:[
+    [/^Read this before you do it\. The odometer drives the service schedule and is the number a buyer or an inspector trusts\. Most of the ([\d,]+) km below is estimated from addresses, not measured, and the error compounds every time you do this\. Use it only when there is no reading from the lorry itself\.$/,
+      '<b>执行前请先阅读。</b>里程表决定保养计划，也是买家与验车员信任的数字。下方 $1 公里大多是按地址估算而非实测，每做一次误差就累积一次。只有在完全没有车辆读数时才使用。'],
+    [/^Open (console\.firebase\.google\.com → .+ → Realtime Database)$/, '打开 $1'],
+    [/^Pre-filled with the (\S+) project on its own data path — OctoCRM sits at (\S+), this app at (\S+), so the two never touch each other's data\. Everyone who opens this file sees the roster update live\.$/,
+      '已预设为 <b>$1</b> 项目，并使用独立数据路径 — OctoCRM 在 <code>$2</code>，本应用在 <code>$3</code>，两者互不干扰。打开此文件的每个人都会看到排班实时更新。'],
+    [/^Hourly basic rate = 12 × monthly basic ÷ \(52 × (\d+)\)\. One day's salary = 12 × monthly basic ÷ \(52 × (\d+)\)\. Overtime is capped at (\d+)h a month, set above\.$/,
+      '每小时底薪 = 12 × 月底薪 ÷（52 × $1）。一天工资 = 12 × 月底薪 ÷（52 × $2）。加班上限为每月 $3 小时，可在上方设定。'],
+    [/^hourly basic rate = 12 × monthly basic ÷ \(52 × (\d+)\)$/, '每小时底薪 = 12 × 月底薪 ÷（52 × $1）'],
+    [/^([\d,.$S]+) a month$/, '每月 $1'],
+    [/^([\d,.$S]+) a year$/, '每年 $1'],
+    [/^(.+) has no lorry for the (.+) shift on (.+)\.$/, '$1 在 $3 的 $2 班次没有配车。'],
+    [/^The first is (.+), (.+)\. Cover these before anything else — everything below is about cost, this one is about the work not going out\.$/,
+      '第一个是 $1 的 $2 班。请优先处理 — 下面各项关乎成本，这一项关乎货送不出去。'],
+    [/^Unassigned jobs never reach a lorry, so their distance and cost are missing from every figure here\. Start with "(.+)" on (.+)\.$/,
+      '未指派的任务不会派到车辆，其里程与成本不会计入本页任何数字。先处理 $2 的「$1」。'],
+    [/^(.+) is on ([\d.]+)h and (.+) on ([\d.]+)h, and no single legal swap closes it — the pattern itself is uneven\. Re-running Auto-plan over the range levels it properly\.$/,
+      '$1 为 $2 小时，$3 为 $4 小时，没有任何合法调换能拉平 — 是班次安排本身不均。对整个区间重新运行自动排班即可平衡。'],
+    [/^Hours are the rostered shift lengths\. Overtime is whatever a week runs past (\d+)h; a week split by the edge of this period is counted only for the days shown\.$/,
+      '工时为排班班次时长。加班指一周超出 $1 小时的部分；被区间边界切开的一周只计入显示的日子。'],
+    [/^(\d+) job\(s\) have no assigned driver, so they belong to no lorry\. Those kilometres are missing from the totals above\.$/,
+      '有 $1 项任务未指派司机，因此不归属任何车辆。这些里程未计入上方合计。'],
+    [/^Estimates come from Singapore town centroids and postal sectors, straight-line distance × ([\d.]+)\. Expect them to be within a few km on a normal run and worse on a short one\. They are never written to the odometer on their own — the odometer stays a measured number, because that is what the service schedule and the resale value depend on\.$/,
+      '估算以新加坡各区中心点与邮区为基础，直线距离 × $1。一般行程误差在几公里内，短途误差较大。系统不会自行写入里程表 — 里程表必须是实测数字，保养计划与转售价值都依赖它。'],
+    [/^Basic pay is spread across the calendar days of its month, because a monthly salary is owed whether or not the lorry moved; overtime is charged to the day the week crosses (\d+)h, so a day, a week and a month all add up\.(.*)$/,
+      '底薪按当月日历天数摊分，因为月薪不论车辆是否行驶都要支付；加班计入当周超过 $1 小时的那一天，因此日、周、月三者相加一致。$2'],
+    [/^You need enough drivers for the busiest day \((\d+)\), while paying them across the whole week\. Flattening the peak is usually cheaper than hiring for it\.$/,
+      '司机数量必须满足最忙的一天（$1 人），而工资要付整周。把高峰拉平通常比多聘一人便宜。'],
+    [/^This overtime is avoidable\. The shift pattern averages ([\d.]+)h a week, inside the (\d+)h norm — the (\S+) comes from work landing unevenly: (.+) books ([\d.]+)h this month while (.+) books ([\d.]+)h\. Re-run Auto-plan to level it out\.$/,
+      '这些加班是可以避免的。班次安排平均每周 $1 小时，仍在 $2 小时标准之内 — $3 来自工作分配不均：本月 $4 为 $5 小时，而 $6 只有 $7 小时。重新运行自动排班即可拉平。'],
+    [/^(.+) — still carrying their share of insurance, road tax and finance$/, '$1 — 仍在分摊保险、路税与融资费用'],
+    [/^(\S+) — Service overdue by ([\d,]+) km(.*)$/, '$1 — 保养已逾期 $2 公里 $3'],
+    [/^(\S+) — Service overdue(.*)$/, '$1 — 保养已逾期 $2'],
+    [/^(\S+) — Service due in (\d+) day\(s\)(.*)$/, '$1 — $2 天后需保养 $3'],
+    [/^(\S+) — Service due in ([\d,]+) km(.*)$/, '$1 — 还有 $2 公里需保养 $3'],
+    [/^(\S+) — Insurance expires in (\d+) day\(s\)(.*)$/, '$1 — 保险 $2 天后到期 $3'],
+    [/^(\S+) — Road tax expires in (\d+) day\(s\)(.*)$/, '$1 — 路税 $2 天后到期 $3'],
+    [/^(\S+) — Inspection expires in (\d+) day\(s\)(.*)$/, '$1 — 年检 $2 天后到期 $3'],
+    [/^(\S+) — Insurance expired (\d+) day\(s\) ago(.*)$/, '$1 — 保险已过期 $2 天 $3'],
+    [/^(\S+) — Road tax expired (\d+) day\(s\) ago(.*)$/, '$1 — 路税已过期 $2 天 $3'],
+    [/^(\S+) — Inspection expired (\d+) day\(s\) ago(.*)$/, '$1 — 年检已过期 $2 天 $3'],
+    [/^(\S+) — Open breakdown (\d{4}-\d{2}-\d{2}) — (.+?)\s*查看 →$/, '$1 — 未结故障 $2 — $3 查看 →'],
+    [/^(\S+) — Repair — back on the road (\d{4}-\d{2}-\d{2})\s*(.*)$/, '$1 — 维修中 — $2 恢复运行 $3'],
+    [/^(\S+) — Repair — no return date set(.*)$/, '$1 — 维修中 — 未定恢复日期 $2'],
+    [/^(\d+) day\(s\) this month have a shift with nobody on it(.*)$/, '本月有 $1 天班次无人当班$2'],
+    [/^(.+) is on (\S+), which is off the road — (.+)$/, '$1 使用 $2，该车已停驶 — $3'],
+    [/^([\d.]+)h of overtime · (\d+) workshop item\(s\)\.$/, '加班 $1 小时 · $2 项维修。'],
+    [/^([\d.]+)h of overtime\.$/, '加班 $1 小时。'],
+    [/^(\d+) workshop item\(s\)\.$/, '$1 项维修。'],
+    [/^Figures follow the Employment Act: overtime at ([\d.]+)× the hourly basic rate, capped at (\d+)h a month; work on a rest day at the employer's request pays 1 day's salary for half the normal daily hours or less and 2 days' salary for more, plus overtime beyond (\d+)h\. Part 4 covers workmen up to (\S+) and non-workmen up to (\S+) basic\. This is a planning estimate, not a payslip — allowances, levies, CPF and public holidays are not included\.$/,
+      '数字依据《雇佣法令》：加班按每小时底薪的 $1 倍计算，每月上限 $2 小时；雇主要求下的休息日上班，工作不超过正常日工时一半付一天工资，超过则付两天工资，超出 $3 小时的部分另计加班。第四部分适用于月底薪不超过 $4 的体力劳动者及不超过 $5 的非体力劳动者。此为规划估算，非工资单 — 不含津贴、外劳税、公积金与公共假期。'],
+    [/^(.+) is (\d+) duty driver short\.(.*)$/, '$1 缺 $2 名当班司机。$3'],
+    [/^no vehicle set · (\d+) assigned$/, '未配车 · 已派 $1 项'],
+    [/^(\S+) · (\d+) assigned$/, '$1 · 已派 $2 项'],
+    [/^(\S+) · (\d+) jobs?$/, '$1 · $2 项任务'],
+    [/^(\d+) logged$/, '已记录 $1 项'],
+    [/^Week shown: (.+) → (.+) · normal hours (\d+)h\/week before OT$/, '显示周期：$1 → $2 · 加班前每周正常工时 $3 小时'],
+    [/^Read this before you do it\. The odometer drives the service schedule and is the number a buyer or an inspector trusts\. Most of the ([\d,]+) km below is estimated from addresses, not measured, and the error compounds every time you do this\. Use it only when there is no reading from the lorry itself\.$/,
+      '<b>执行前请先阅读。</b>里程表决定保养计划，也是买家与验车员信任的数字。下方 $1 公里大多是按地址估算而非实测，每做一次误差就累积一次。只有在完全没有车辆读数时才使用。'],
+    [/^Open (console\.firebase\.google\.com → .+ → Realtime Database)$/, '打开 $1'],
+
+    [/^Fleet check: (\d+) drivers cover (\d+) driver-days a week with (\d+) available\. Average ([\d.]+)h\/week — no built-in overtime\.$/,
+      '车队核算：$1 名司机，每周需 $2 人天，可提供 $3 人天。平均每周 $4 小时 — 无结构性加班。'],
+    [/^Fleet check: you need (\d+) driver-days a week and have (\d+)\.(.*)$/, '车队核算：每周需 $1 人天，实际有 $2 人天。$3'],
+    [/^Rules applied: (\d+) off day\(s\)\/week · max (\d+)h\/week before OT · min (\d+)h rest between shifts · max (\d+) days straight\.$/,
+      '适用规则：每周休息 $1 天 · 加班前每周上限 $2 小时 · 班次间至少休息 $3 小时 · 最多连续 $4 天。'],
+    [/^The roster is not syncing yet\. The (\S+) database is alive and reachable, but its rules only open the (\S+) branch\. Anything else, including (\S+), is refused\.$/,
+      '排班尚未同步。<b>$1</b> 数据库正常且可访问，但其规则只开放 <code>$2</code> 分支，其他路径（包括 <code>$3</code>）一律拒绝。'],
+  ],
+  dict:{
+/* navigation & chrome */
+'Today':'今日','Roster':'排班表','Regular Jobs':'固定业务','Cover & Credits':'顶班与补休',
+'Standby Jobs':'待命任务','Lorries & Workshop':'车辆与维修','Owner Summary':'老板总览',
+'Reports':'报表','Pay & OT Cost':'工资与加班成本','Drivers':'司机','Settings':'设置',
+'Pay & Overtime Cost':'工资与加班成本','24h fleet roster planner':'24小时车队排班系统',
+'Theme':'主题','Print':'打印','Local only':'仅本机','Offline — saved on this device':'离线 — 已存本机',
+/* common words */
+'Save':'保存','Cancel':'取消','Close':'关闭','Delete':'删除','Edit':'编辑','Open':'打开','Add':'新增',
+'Assign':'指派','Clear':'清除','Look':'查看','Share':'分享','Copy':'复制','Good':'好','Got it':'知道了',
+'Name':'姓名','Date':'日期','Time':'时间','Status':'状态','Type':'类型','Note':'备注','Notes':'备注',
+'Amount':'金额','Cost':'成本','Total':'合计','From':'从','To':'到','Per':'每','Start':'开始','End':'结束',
+'When':'时间','Where':'地点','Group':'分组','Category':'类别','Basis':'依据','Balance':'结余',
+'Please confirm':'请确认','Warnings':'警告','Updated':'已更新','Estimated':'估算','Measured':'实测',
+'Every day':'每天','Weekends':'周末','Days':'天数','Hours':'工时','Hrs':'时','Odo':'里程','Bal':'结余',
+'Len':'时长','Duty':'当班','Stby':'待命','Runs':'运行日','Live':'实时','Plate':'车牌','Vehicle':'车辆',
+'Lorry':'车辆','Mileage':'里程','Odometer':'里程表','Litres':'公升','Trips':'趟数','Jobs':'任务',
+'Driver':'司机','Shift':'班次','Overtime':'加班','Standby':'待命','Normal':'正常','Cover':'顶班',
+'Replacement':'顶班司机','Covering for':'顶替','Absent':'缺勤','Attention':'需要注意','Alerts':'提醒',
+'Distance':'里程','Fuel':'燃油','Workshop':'维修','Overhead':'固定开支','Opening':'期初',
+'Emp no':'工号','Licence':'驾照','Severity':'严重程度','Symptom':'故障现象','Station':'加油站',
+'Tank':'油箱','Urgency':'紧急程度','Assigned to':'指派给','Per lorry':'各车辆','Per month':'每月',
+'Applies to':'适用于','Belongs to':'所属','Customer':'客户','Period':'周期','Basic':'底薪',
+'Hourly':'时薪','Cross-check':'交叉核对','Next service':'下次保养','Driver today':'今日司机',
+'Road tax':'路税','Insurance':'保险','Inspection':'年检','Last seen':'最后更新','History':'历史记录',
+'Unassign':'取消指派','Deliveries':'配送','Off bal':'补休结余','OT':'加班','OT hrs':'加班时数',
+'OT pay':'加班费','Extra cost':'额外成本','Rest days':'休息日','Rest-day pay':'休息日工资',
+'Comp offs taken':'已取补休','Covers worked':'顶班次数','Shift pref':'班次偏好','This wk hrs':'本周工时',
+'Logged km':'记录里程','Jobs hit':'受影响任务','Days short':'短缺天数','Days off road':'停驶天数',
+'Back on road':'恢复运行','Back in service':'恢复服务','Cause found':'查明原因','Action taken':'处理措施',
+'Invoice no':'发票号','Work done':'已完成工作','Shift / role':'班次 / 角色','L / 100 km':'升 / 100公里',
+'Litres / 100 km':'升 / 100公里','Fuel cost / km':'每公里油费','Deliveries affected':'受影响配送',
+/* buttons */
+'+ Add':'+ 新增','+ Add driver':'+ 新增司机','+ Lorry':'+ 新增车辆','+ Shift':'+ 新增班次',
+'+ Job':'+ 新增任务','+ New job':'+ 新任务','+ Fill':'+ 加油记录','+ Workshop job':'+ 维修工单',
+'+ Regular job':'+ 新增固定业务','Bulk add':'批量新增','Bulk add drivers':'批量新增司机',
+'Add drivers':'新增司机','Paste a list':'粘贴名单','Add your first driver':'新增第一位司机',
+'Add your first lorry':'新增第一辆车','Create your first one':'新建第一个','Add one by hand':'手动新增',
+'Save driver':'保存司机','Save lorry':'保存车辆','Save shift':'保存班次','Save job':'保存任务',
+'Save fill':'保存加油记录','Save breakdown':'保存故障记录','Save operation settings':'保存运营设置',
+'Save pay settings':'保存工资设置','Save these settings':'保存设置','Save sync URL':'保存同步网址',
+'Generate':'生成','Clear range':'清除此区间','Auto-plan the roster':'自动排班',
+'Find cover':'寻找顶班','Give comp off':'安排补休','Give the day back':'归还休息日',
+'Return off day':'归还休息日','Return the off day':'归还休息日','Settle later':'稍后处理',
+'Swap their off days':'互换休息日','Set off day':'设定休息日','Pick a standby driver':'挑选待命司机',
+'Leave it empty':'暂不安排','Leave him without one':'暂不配车','Make it his usual lorry':'设为常用车辆',
+'Add the estimate':'加入估算值','Use the reading I typed':'使用我输入的读数',
+'Test connection':'测试连接','Disconnect':'断开连接','Erase everything':'清空所有数据',
+'Load demo fleet':'载入示范数据','Open settings':'打开设置','Open Regular Jobs':'打开固定业务',
+'Read the table':'读取表格','Make the swap':'执行调换','Assign it':'指派','Give him one':'配一辆车',
+'Open the roster':'打开排班表','Open the register':'打开车辆登记',
+'↓ CSV':'↓ CSV','⎙ Print':'⎙ 打印','↻ Sync now':'↻ 立即同步','⚠ Breakdown':'⚠ 故障',
+'⚠ Log breakdown':'⚠ 记录故障','⇪ Import list':'⇪ 导入名单','⧉ Paste from Cartrack':'⧉ 从 Cartrack 粘贴',
+'⇪ Import vehicle list (CSV)':'⇪ 导入车辆名单 (CSV)','↓ Export all data (JSON)':'↓ 导出全部数据 (JSON)',
+'↑ Import JSON':'↑ 导入 JSON','↓ Credit ledger CSV':'↓ 补休台账 CSV','↓ Delivery jobs CSV':'↓ 配送任务 CSV',
+'↓ Overtime cost CSV':'↓ 加班成本 CSV','↓ Lorries & workshop CSV':'↓ 车辆与维修 CSV',
+'Show table':'显示表格','Hide table':'隐藏表格',
+/* card headings */
+'Operation':'运营设置','Servicing, fuel & distance':'保养、燃油与里程','Pay & overtime':'工资与加班',
+'Shifts':'班次','Fixed monthly overheads':'固定月度开支','Shared realtime database':'共享实时数据库',
+'Backup & data':'备份与数据','Manpower & overtime check':'人力与加班检查','Cartrack sync':'Cartrack 同步',
+'Lorry register':'车辆登记','Workshop jobs':'维修工单','Fuel log':'加油记录',
+'Breakdown log':'故障记录','Consumption per lorry':'各车油耗','Standby drivers':'待命司机',
+'Off-day credit balance':'补休结余','Cover log':'顶班记录','Figures behind the charts':'图表数据',
+'Working hours per driver':'各司机工时','Fuel cost per lorry':'各车油费','Fuel used per 100 km':'每百公里油耗',
+'Suggested changes':'建议调整','Distance logged from jobs':'任务记录里程','Deliveries today':'今日配送',
+'Off today — callable':'今日休息 — 可召回','What the operation costs':'运营成本构成',
+'Where the money went':'钱花在哪里','Operating cost, twelve months':'运营成本 · 十二个月',
+'Spending that could be avoided':'可以避免的支出','Needs attention':'需要处理',
+'Drivers needed through the week':'一周所需司机','Rest days worked and not given back':'已上班但未归还的休息日',
+'Welcome to Driver Allocation':'欢迎使用车队排班系统',
+/* KPI labels */
+'On duty':'当班','On MC':'病假','Off / leave':'休息 / 请假','Urgent unassigned':'紧急未派',
+'Lorries available':'可用车辆','OT cost this month':'本月加班成本','Working hours':'工时',
+'Of which overtime':'其中加班','Cost per km':'每公里成本','Cost per lorry per day':'每车每日成本',
+'Fixed overheads':'固定开支','Lorries on the road':'在路车辆','Operating cost':'运营成本',
+'Overtime cost':'加班成本','Rest-day cost':'休息日成本','Total on top of salaries':'工资以外合计',
+'Drivers over the cap':'超上限司机','Regular jobs':'固定业务','Driver-days a week':'每周人天需求',
+'Busiest single day':'最忙一天','Fleet can supply':'车队可提供','New lorries':'新增车辆',
+'Open off-day credits':'未结补休','Total covers logged':'顶班总次数','MC days this month':'本月病假天数',
+'Lorries fuelled':'已加油车辆','Fuel spend':'燃油支出','Open workshop jobs':'未结维修工单',
+'Open breakdowns':'未结故障','Workshop cost':'维修成本','Fuel (estimated)':'燃油（估算）',
+/* form labels */
+'Company / fleet name':'公司 / 车队名称','Week starts':'每周起始日','Off days / week':'每周休息日',
+'Normal hours/week':'每周正常工时','Max OT hours/month':'每月加班上限','Min rest between shifts (h)':'班次间最短休息（小时）',
+'Max consecutive work days':'最多连续工作天数','Warn before expiry (days)':'到期前提醒（天）',
+'Service every (km)':'保养间隔（公里）','or every (months)':'或每（月）','Fuel price / litre':'油价 / 公升',
+'Default L / 100 km':'默认百公里油耗','Road factor':'路程系数','Currency':'货币',
+'Overtime multiplier':'加班倍率','Normal daily hours':'每日正常工时','Working days / week':'每周工作天数',
+'Workman salary cap':'体力劳动者薪资上限','Non-workman cap':'非体力劳动者上限',
+'Work on a rest day is':'休息日上班属于','Employee no':'工号','Phone':'电话','Licence class':'驾照等级',
+'Assigned lorry':'指派车辆','Shift preference':'班次偏好','Preferred off day':'偏好休息日',
+'Opening off-day balance':'期初补休结余','Pay basis':'计薪方式','Overtime entitlement':'加班资格',
+'Plate number':'车牌号码','Make & model':'品牌型号','Payload / capacity':'载重 / 容量',
+'Odometer (km)':'里程表（公里）','Road tax expiry':'路税到期','Insurance expiry':'保险到期',
+'Inspection due':'年检到期','Last service odometer':'上次保养里程','Last service date':'上次保养日期',
+'Group / contract':'分组 / 合同','Shift name':'班次名称','Duty drivers required':'所需当班司机',
+'Lorry type needed':'所需车型','Licence needed':'所需驾照',
+'Shift (for duty / standby)':'班次（当班 / 待命）','Job / customer':'任务 / 客户','Collect from':'提货地点',
+'Collection by':'提货时间','Deliver to':'送达地点','Delivery window':'送达时段','Distance (km)':'距离（公里）',
+'Work to do / done':'维修内容','Off road from':'停驶起','Contract value / month':'合同月金额',
+'Starts (optional)':'开始（可选）','Ends (optional)':'结束（可选）','From (optional)':'从（可选）',
+'Until (optional)':'至（可选）','What is it':'名称','Cartrack sync URL (optional)':'Cartrack 同步网址（可选）',
+'Data path':'数据路径','authDomain (optional)':'authDomain（可选）',
+'Date of the compensating off day':'补休日期','Or type the real reading off the dashboard':'或输入仪表实际读数',
+/* modal titles */
+'Roster entry':'排班记录','Assign delivery':'指派配送','Import the vehicle list':'导入车辆名单',
+'Paste the vehicle table from Cartrack':'从 Cartrack 粘贴车辆表格','Give a compensating off day':'安排补休',
+'Standby seat is now empty':'待命位已空缺',
+'Add logged distance to the odometer':'把记录里程加入里程表','Roster generated — with gaps':'排班已生成 — 存在空缺',
+'Could not read that file':'无法读取该文件','Could not tell':'无法判断','No answer':'无响应',
+'Linked':'已连接','Sync failed':'同步失败','Testing the link':'正在测试连接',
+'One step left — allow this app in the database rules':'还差一步 — 在数据库规则中允许此应用',
+'Add a fixed overhead':'新增固定开支','Fixed overhead':'固定开支',
+'Log a fuel fill':'记录加油','Fuel fill':'加油记录','New workshop job':'新维修工单','Workshop job':'维修工单',
+'Log a breakdown':'记录故障','Breakdown':'故障','New regular job':'新增固定业务',
+'Add shift':'新增班次','Edit shift':'编辑班次','Add driver':'新增司机','Edit driver':'编辑司机',
+'Add lorry':'新增车辆','New delivery job':'新配送任务','Edit job':'编辑任务',
+'Basic pay':'底薪','Overtime & rest days':'加班与休息日','Workshop & repairs':'维修与修理',
+'Fixed overheads':'固定开支','Any':'不限','Not set up':'尚未设置','fleet default':'车队默认值',
+'set on the lorry':'该车设定值','needs cover':'需要顶班','open →':'查看 →','open lorry →':'查看车辆 →',
+'fix →':'处理 →','Look':'查看','Immobilised':'无法行驶','Major':'严重','Minor':'轻微',
+'planned or in the workshop':'已计划或维修中','not yet closed off':'尚未结案',
+'expiry, service, off-road':'到期、保养、停驶','road tax, insurance, inspection, servicing, off-road':'路税、保险、年检、保养、停驶',
+'whole fleet · one column per day':'全车队 · 每日一列','whole fleet · one column per week':'全车队 · 每周一列',
+'whole fleet · one column per month':'全车队 · 每月一列','whole fleet · one column per year':'全车队 · 每年一列',
+'all time':'累计','a month, before a wheel turns':'每月固定，车不动也要付',
+'from the fuel log':'来自加油记录','estimated from distance — no fills logged':'按里程估算 — 无加油记录',
+'thirstiest first · measured figures only where two full tanks exist':'油耗最高排前 · 仅两次满箱之间可实测',
+'measured between full tanks':'两次满箱之间实测','banked off days':'累计补休',
+'standby runs the low-priority drops and gets pulled onto urgent ones':'待命司机负责低优先配送，紧急时可调用',
+'give the day back in the same week and this cost disappears':'同周内归还休息日即可免除此成本',
+'peak day drives the fleet size, not the average':'车队规模取决于最忙一天，而非平均值',
+'+1 when a driver works his rest day · −1 when he takes it back':'司机上休息日班 +1 · 补休后 −1',
+'Nobody absent.':'无人缺勤。','No drivers on off day.':'今日无人休息。',
+'Driver-days needed each week':'每周所需人天','Driver-days you have':'现有人天',
+'Minimum fleet size':'最少司机数','Average hours / driver / week':'人均每周工时',
+'Driver-days / wk':'人天 / 周','24 hours':'24 小时','enough':'足够','Cover':'覆盖',
+'Find cover →':'寻找顶班 →','assign a replacement →':'指派顶班 →','no lorry ⇄':'无配车 ⇄',
+'lorry off road ⇄':'车辆停驶 ⇄','Scheduled service':'定期保养','Repair':'维修',
+'LTA inspection':'LTA 年检','Tyres':'轮胎','Bodywork':'车身','Air-con':'空调','Other':'其他',
+'Yard / office rental':'停车场 / 办公室租金','Licences & permits':'牌照与准证',
+'Loan / lease':'贷款 / 租赁','Tracking & software':'定位与软件','Office & admin salaries':'办公与行政薪资',
+'Every lorry on the road':'所有在路车辆','whole fleet':'全车队','stopped':'已停止',
+'Click a cell to change · red dot = covering someone · green dot = comp off':'点击格子可修改 · 红点＝顶班 · 绿点＝补休',
+'Each regular job carries its own hours and its own running days. A weekday contract never pulls night-shift headcount into the plan, and Auto-plan only staffs a job on the days it actually runs.':'每项固定业务有自己的班次时间与运行日。只在平日运行的合同不会把夜班人力算进来，自动排班也只在实际运行日安排人手。',
+'No delivery jobs are attributed to a lorry this month. A job counts once it has a date, an assigned driver, and a collection and delivery address.':'本月没有配送任务归属到车辆。任务需要有日期、指派司机、提货与送达地址才会计入。',
+'They are never written to the odometer on their own':'系统不会自行写入里程表',
+'— the odometer stays a measured number, because that is what the service schedule and the resale value depend on.':'— 里程表必须是实测数字，保养计划与转售价值都依赖它。',
+'The bills that arrive whether a wheel turns or not. They are spread across the calendar days of each month, so they show up in the daily, weekly, monthly and yearly cost charts.':'不论车辆是否行驶都要支付的账单。按每月日历天数摊分，因此会出现在日、周、月、年成本图表中。',
+'Shifts belong to a regular job, so each contract can keep its own hours and running days. Edit them under':'班次隶属于固定业务，各合同可保留自己的时间与运行日。请在此编辑：',
+'Hours are the rostered shift lengths. Overtime is whatever a week runs past':'工时为排班班次时长。加班为一周超出',
+'Standby drivers':'待命司机'
+,
+/* --- second sweep: buttons, headings, tooltips, pills, options --- */
+'This overtime is avoidable.':'这些加班是可以避免的。','Auto-plan':'自动排班',
+'to level it out.':'即可拉平。','Re-run':'重新运行','Regular job':'固定业务','mth':'月',
+'No fills logged this month. Record each one — with the odometer and whether the tank was filled — and the app works out litres per 100 km for every lorry.':'本月未记录加油。每次加油都记下里程与是否加满，系统即可算出每辆车的百公里油耗。',
+'Not included: CPF, levies, insurance, road tax, parking, ERP or finance.':'不含：公积金、外劳税、保险、路税、停车费、ERP 与融资费用。',
+/* --- third sweep: dialog options, placeholders and checkbox labels --- */
+'Always pay overtime':'一律计加班','Never pay overtime':'不计加班',
+'Automatic':'自动','by the Part 4 salary cap':'依第四部分薪资上限',
+'Any shift':'任何班次','No preference':'无偏好','Hourly rate':'时薪制','Monthly basic':'月薪制',
+'Workman':'体力劳动者','Non-workman':'非体力劳动者','Non-workman cap':'非体力劳动者上限',
+'Workman salary cap':'体力劳动者薪资上限',
+'Urgent':'紧急','Normal':'普通','Low — standby can take it':'低 — 可交待命司机',
+'kept going':'仍可行驶','run abandoned':'中止行程','towed':'需拖车','Had to be towed':'需要拖车',
+'include in rosters':'计入排班','include in the roster':'计入排班',
+'leave blank for any':'留空表示不限','leave blank to estimate':'留空则自动估算',
+'measured if blank':'留空表示实测','optional':'可留空','van':'厢型车','Split':'分段班',
+'Colour':'颜色','Runs on':'运行日','Make & model':'厂牌与型号','Make &amp; model':'厂牌与型号',
+'Hourly basic rate':'每小时底薪','one day\'s salary':'一天工资',
+'Erase everything on this device?':'清除本机所有数据？','Erase everything':'全部清除',
+'No file handy?':'手边没有文件？',
+'Paste the table straight out of the Cartrack portal →':'直接从 Cartrack 网页粘贴表格 →',
+'Drop the CSV here, or click to choose':'把 CSV 拖到这里，或点击选择',
+'above the Part 4 cap, so overtime pay is contractual rather than statutory':'超出第四部分上限，加班费按合同而非法定标准计算',
+'Put the town or the postal code in the address, or type the distance in.':'请在地址中加入区名或邮编，或直接输入距离。',
+'the figure you typed is used instead.':'将改用你输入的数字。',
+'used unless you type a distance above.':'若上方未输入距离则采用此值。',
+'Engine oil, filters, brake pads':'机油、滤芯、刹车片',
+'Overheating, coolant loss':'水温过高、冷却液流失',
+'neither address recognised':'两个地址都无法识别',
+'no pick-up address':'无收货地址','no delivery address':'无送货地址',
+'use it':'采用','Estimated':'估算','Add the estimate':'加入估算值',
+'◐ Theme':'◐ 主题','⚡ Auto-plan':'⚡ 自动排班','↓ CSV':'↓ CSV',
+'Connect & sync':'连接并同步','Connect &amp; sync':'连接并同步',
+'Load demo':'载入示范','Push this device\'s data up':'把本机数据上传',
+'Toggle theme':'切换深浅色','click to allocate a lorry':'点击分配车辆',
+'estimated from the addresses':'按地址估算','entered by hand':'手动输入',
+'Driver Allocation':'司机调度','24h fleet roster planner':'24小时车队排班系统',
+'Distance travelled':'行驶里程','Trips completed':'完成趟数','Working hours':'工作时数',
+'Fuel cost':'燃油成本','Operating cost':'运营成本',
+'Working hours per driver':'各司机工作时数','Per driver':'各司机',
+'whole fleet':'全车队','one column per day':'每天一列','one column per week':'每周一列',
+'one column per month':'每月一列',
+'Fleet total':'全车队合计','no distance logged':'未记录里程',
+'A driver has no roadworthy lorry':'有司机没有可上路的车辆',
+'Demo fleet loaded':'示范数据已载入',
+'km / L':'公里/升','Fuel cost / km':'每公里燃油成本',
+'off road':'停驶','overdue':'逾期','Days off road':'停驶天数',
+'lorry':'车辆','lorry:':'车辆：','none':'无','anytime':'不限时间',
+'Monday':'周一','Tuesday':'周二','Wednesday':'周三','Thursday':'周四',
+'Friday':'周五','Saturday':'周六','Sunday':'周日',
+'At the employer\'s request — 1 or 2 days\' salary':'雇主要求 — 一天或两天工资',
+'At the driver\'s request — half or 1 day\'s salary':'司机自愿 — 半天或一天工资',
+'At the employer\u2019s request \u2014 1 or 2 days\u2019 salary':'雇主要求 — 一天或两天工资',
+'At the driver\u2019s request \u2014 half or 1 day\u2019s salary':'司机自愿 — 半天或一天工资',
+'Not included: CPF, levies, insurance':'不含：公积金、外劳税、保险',
+'Lorries & Workshop → Fuel log':'车辆与维修 → 加油记录',
+'Lorries &amp; Workshop → Fuel log':'车辆与维修 → 加油记录',
+'Fuel log':'加油记录','Nothing recorded in this period.':'此期间无记录。',
+'No rostered shifts in this period.':'此期间无排班班次。',
+'No fuel spend to show. Log fills under':'暂无燃油支出。请在此记录加油：',
+'open':'查看','fix':'修复','view':'查看','open →':'查看 →','fix →':'处理 →','view →':'查看 →',
+'Find cover →':'寻找顶班 →','Open →':'查看 →',
+'back on the road':'恢复运行','no return date set':'未定恢复日期',
+'Normal':'正常工时','Overtime':'加班',
+'Scheduled service':'定期保养','LTA inspection':'陆交局年检',
+'Total':'合计','Fleet':'车队','Standby drivers':'待命司机',
+'MC':'病假','Off':'休息','Duty':'当班',
+'on standby':'待命中','shifts':'个班次',
+'nothing outstanding':'无待办','all clear':'一切正常','nothing found':'未发现',
+'Every day':'每天','Mon–Fri':'周一至周五','Mon–Sat':'周一至周六','Weekends':'周末'
+
+  },
+  /* short strings that carry a number — matched by shape */
+  patterns:[
+    [/^(\d+) drivers on the roster$/, '排班司机 $1 人'],
+    [/^(\d+) day\(s\) have an unmanned shift$/, '有 $1 天班次无人当班'],
+    [/^Fully manned$/, '人手齐备'], [/^Cover available$/, '有后备'], [/^none reported$/, '无'],
+    [/^rest day \/ annual leave$/, '休息日 / 年假'],
+    [/^(\d+) open jobs today$/, '今日 $1 项未完成任务'],
+    [/^all roadworthy$/, '全部可上路'], [/^(\d+) off the road$/, '$1 辆停驶'],
+    [/^enough for every shift$/, '各班次足够'], [/^delivery jobs attributed$/, '已归属的配送任务'],
+    [/^(\d+) lorries moved$/, '$1 辆车有行驶'],
+    [/^Sustainable$/, '可持续'], [/^Needs attention$/, '需要注意'],
+    [/^Active$/, '在职'], [/^Inactive$/, '停用'], [/^Paused$/, '已暂停'],
+    [/^On the road$/, '在路'], [/^In workshop$/, '维修中'], [/^Off road$/, '停驶'], [/^Retired$/, '已退役'],
+    [/^Driving$/, '行驶中'], [/^Stationary$/, '静止'], [/^Idling$/, '怠速'], [/^Ignition off$/, '熄火'],
+    [/^Off day$/, '休息日'], [/^MC \(sick leave\)$/, '病假'], [/^Leave$/, '请假'],
+    [/^Unassigned$/, '未指派'], [/^Planned$/, '已计划'], [/^Done$/, '已完成'],
+    [/^Closed$/, '已结'], [/^full$/, '加满'], [/^part$/, '部分'],
+    [/^new$/, '新增'], [/^update$/, '更新'], [/^fix$/, '修复'], [/^save$/, '节省'], [/^note$/, '提示'],
+    [/^URGENT$/, '紧急'], [/^NORMAL$/, '普通'], [/^LOW$/, '低'],
+    [/^DUTY$/, '当班'], [/^STBY$/, '待命'], [/^OFF$/, '休息'], [/^LEAVE$/, '请假'],
+    [/^unassigned$/, '未指派'],
+    [/^Daily$/, '每日'],[/^Weekly$/, '每周'],[/^Monthly$/, '每月'],[/^Yearly$/, '每年'],
+    [/^Trend shows$/, '趋势显示'],[/^Fuel cost$/, '燃油成本'],[/^Operating cost$/, '运营成本'],
+    /* --- sentences built from data --- */
+    [/^(.+) has no lorry for the (.+) shift$/, '$1 在 $2 班次没有配车'],
+    [/^(.+) is on (.+), which is off the road — (.+)$/, '$1 使用 $2，该车已停驶 — $3'],
+    [/^(.+) is on two overlapping shifts — (.+) and (.+)$/, '$1 在两个重叠班次 — $2 与 $3'],
+    [/^(\d+) short$/, '短缺 $1 人'],
+    [/^(\d+) days? off road$/, '停驶 $1 天'],
+    [/^(\d+)w \/ (\d+)off$/, '上班 $1 天 / 休息 $2 天'],
+    [/^(\d+)h wk · bal (-?\d+)$/, '本周 $1 小时 · 结余 $2'],
+    [/^([\d.]+) km est$/, '约 $1 公里'],
+    [/^(\d+) jobs?$/, '$1 项任务'],
+    [/^(\d+)h OT · (\d+) rest day\(s\) worked$/, '加班 $1 小时 · 上班休息日 $2 天'],
+    [/^— Service overdue by ([\d,]+) km$/, '— 保养已逾期 $1 公里'],
+    [/^— Service overdue$/, '— 保养已逾期'],
+    [/^— Service due in (\d+) days?$/, '— $1 天后需保养'],
+    [/^— Service due in (\d+) day\(s\)$/, '— $1 天后需保养'],
+    [/^— Service due in ([\d,]+) km$/, '— 还有 $1 公里需保养'],
+    [/^— Insurance expires in (\d+) day\(s\)$/, '— 保险 $1 天后到期'],
+    [/^— Road tax expires in (\d+) day\(s\)$/, '— 路税 $1 天后到期'],
+    [/^— Inspection expires in (\d+) day\(s\)$/, '— 年检 $1 天后到期'],
+    [/^— Insurance expired (\d+) day\(s\) ago$/, '— 保险已过期 $1 天'],
+    [/^— Road tax expired (\d+) day\(s\) ago$/, '— 路税已过期 $1 天'],
+    [/^— Inspection expired (\d+) day\(s\) ago$/, '— 年检已过期 $1 天'],
+    [/^— Repair — no return date set$/, '— 维修中 — 未定恢复日期'],
+    [/^· Service — Service overdue by ([\d,]+) km$/, '· 保养 — 已逾期 $1 公里'],
+    [/^· Service — Service overdue$/, '· 保养 — 已逾期'],
+    [/^· Service — Service due in (\d+) day\(s\)$/, '· 保养 — $1 天后到期'],
+    [/^· Service — Service due in ([\d,]+) km$/, '· 保养 — 还有 $1 公里'],
+    [/^· Insurance — Insurance expires in (\d+) day\(s\)$/, '· 保险 — $1 天后到期'],
+    [/^· Road tax — Road tax expires in (\d+) day\(s\)$/, '· 路税 — $1 天后到期'],
+    [/^· Inspection — Inspection expires in (\d+) day\(s\)$/, '· 年检 — $1 天后到期'],
+    [/^measured over ([\d,]+) km$/, '基于 $1 公里实测'],
+    [/^(\d+) fills · (\d+) L · ([\d,]+) km$/, '加油 $1 次 · $2 升 · $3 公里'],
+    [/^(\d+) drivers$/, '$1 名司机'],
+    [/^(\d+) lorries$/, '$1 辆车'],
+    [/^(\d+) shifts$/, '$1 个班次'],
+    [/^(\d+) of (\d+) on the road$/, '$1 / $2 在路'],
+    [/^(\d+) off the road today$/, '今日 $1 辆停驶'],
+    [/^([\d,]+)h worked$/, '已工作 $1 小时'],
+    [/^([\d,]+) km logged$/, '已记录 $1 公里'],
+    [/^([\d,]+) km covered$/, '行驶 $1 公里'],
+    [/^(\d+) drivers on shift × 7 days$/, '每班 $1 人 × 7 天'],
+    [/^(\d+) drivers × (\d+) working days$/, '$1 名司机 × $2 个工作日'],
+    [/^you have enough$/, '人手足够'],
+    [/^(\d+) more drivers? needed$/, '还需 $1 名司机'],
+    [/^within (\d+)h — no structural OT$/, '在 $1 小时内 — 无结构性加班'],
+    [/^([\d.]+)h overtime per driver, every week$/, '每人每周加班 $1 小时'],
+    [/^(\d+) set up in total$/, '共设置 $1 个'],
+    [/^across every job, on the days each runs$/, '涵盖各业务的实际运行日'],
+    [/^drivers needed at the peak$/, '高峰所需司机'],
+    [/^(\d+) drivers? short$/, '短缺 $1 名司机'],
+    [/^(\d+) delivery jobs? attributed$/, '已归属配送任务 $1 项'],
+    [/^(\d+) drivers on the roster$/, '排班司机 $1 人'],
+    [/^([\d,]+) litres · (\d+) fills$/, '$1 升 · 加油 $2 次'],
+    [/^at ([^ ]+)\/litre$/, '每升 $1'],
+    [/^(\d+) of (\d+) on the road$/, '$1 / $2 在路'],
+    [/^worked on a rest day, not yet returned$/, '已上休息日班，尚未归还'],
+    [/^more than (\d+)h OT$/, '加班超过 $1 小时'],
+    [/^(\d+)% of hours worked$/, '占工时 $1%'],
+    [/^(\d+)% of income$/, '占收入 $1%'],
+    [/^a month · (\d+) fills$/, '本月 · 加油 $1 次'],
+    [/^is (\d+) duty drivers? short\.$/, '缺 $1 名当班司机。'],
+    [/^is (\d+) standby drivers? short\.$/, '缺 $1 名待命司机。'],
+    [/^on MC \((.+)\) —$/, '病假（$1）—'],
+    [/^\+(\d+) more lorry alerts on the workshop board\.$/, '维修板上还有 $1 条车辆提醒。'],
+    [/^\((\d+) active\)$/, '（在职 $1 人）'],
+    [/^(\d+) duty \+(\d+) stby$/, '当班 $1 + 待命 $2'],
+    [/^(\d+) duty$/, '当班 $1'],
+    [/^(.+) · need (\d+)\+(\d+)$/, '$1 · 需 $2+$3'],
+    [/^· (\d+) jobs?$/, '· $1 项任务'],
+    [/^(\d+) job$/, '$1 项任务'],
+    [/^(\d+) shifts?$/, '$1 个班次'],
+    [/^(\d+)h a day$/, '每天 $1 小时'],
+    [/^(\d+) workshop items?$/, '$1 项维修'],
+    [/^(\d+) rest days? worked and unreturned$/, '$1 天休息日上班未归还'],
+    [/^([\d.]+)h of overtime$/, '加班 $1 小时'],
+    [/^Operating cost · (.+)$/, '运营成本 · $1'],
+    [/^Contract income$/, '合同收入'],[/^Margin$/, '毛利'],
+    [/^▲ (\d+)% on (.+) \((.+)\)$/, '▲ 较 $2 上升 $1%（$3）'],
+    [/^▼ (\d+)% on (.+) \((.+)\)$/, '▼ 较 $2 下降 $1%（$3）'],
+    [/^no figures for (.+) to compare with$/, '$2 无数据可比较'],
+    [/^Put a monthly value on each regular job and this page shows income and margin too\.$/, '为每项固定业务填上月金额，本页即可显示收入与毛利。'],
+    [/^Income counts the regular jobs only — ad-hoc work is not in it\.$/, '收入仅计固定业务，不含临时任务。'],
+    [/^(.+) including rest days$/, '$1（含休息日）'],
+    [/^(\d+) items?\(s\)$/, '$1 项'],
+    [/^(\d+) item\(s\)$/, '$1 项'],
+    [/^(\d+) to look at$/, '$1 项待处理'],
+    [/^Nothing obvious\. No movable overtime, no rest days owed, no repeat breakdowns, no idle lorries, and the shift pattern is not manufacturing overtime on its own\.$/, '未发现明显问题：没有可调换的加班、没有欠还的休息日、没有重复故障、没有闲置车辆，班次安排本身也没有制造加班。'],
+    [/^Nothing expiring, nothing overdue, every shift manned, no driver over the overtime cap\.$/, '没有即将到期项目，没有逾期事项，各班次人手齐备，无司机超出加班上限。'],
+    [/^These are estimates of what the same month would have cost with the problem removed, not guaranteed savings\.$/, '这些是假设问题已解决时同月的成本估算，并非保证可省下的金额。'],
+    [/^a month, before a wheel turns$/, '每月固定，车不动也要付'],
+    [/^(\d+) lorries$/, '$1 辆车'],
+    [/^(\d+) off the road today$/, '今日 $1 辆停驶'],
+    /* --- second sweep: shapes found by rendering every screen in Chinese --- */
+    [/^(.+) over time$/, '$1趋势'],
+    [/^(.+) by (day|week|month)$/, '$1 按$2'],
+    [/^(\d+) duty \/ (\d+) standby$/, '当班 $1 / 待命 $2'],
+    [/^(\d+) standby$/, '待命 $1'],
+    [/^(\d+) duty$/, '当班 $1'],
+    [/^(\S+) (\d{4}-\d{2}-\d{2})$/, '$2 $1'],
+    [/^Off day$/, '休息日'],
+    [/^On duty$/, '当班'],
+    [/^([\d,]+) km$/, '$1 公里'],
+    [/^([\d,.]+) km service$/, '$1 公里保养'],
+    [/^([\d.]+) OT hours$/, '加班 $1 小时'],
+    [/^(\d+) rest day\(s\) worked$/, '上班休息日 $1 天'],
+    [/^(\d+) rest day\(s\) worked and not given back$/, '$1 天休息日上班未归还'],
+    [/^(\d+) fills$/, '加油 $1 次'],
+    [/^(\d+) delivery job\(s\) unassigned$/, '有 $1 项配送任务未指派'],
+    [/^(\d+) delivery job\(s\) unassigned, (\d+) of them urgent$/, '有 $1 项配送任务未指派，其中 $2 项紧急'],
+    [/^Hours are (\d+)h apart across the fleet$/, '全车队工时相差 $1 小时'],
+    [/^Within (\d+)h a week$/, '每周 $1 小时以内'],
+    [/^of (\d+) on the road$/, '共 $1 辆在路'],
+    [/^Find cover for (.+)$/, '为 $1 寻找顶班'],
+    [/^Class (\d+)$/, '$1 级驾照'],
+    [/^(\d+)ft lorry$/, '$1 尺货车'],
+    [/^(\d+) shifts$/, '$1 个班次'],
+    [/^(\d+)h on standby$/, '待命 $1 小时'],
+    [/^(.+) extra$/, '$1 加班'],
+    [/^↓ Roster CSV \((.+)\)$/, '↓ 排班表 CSV（$1）'],
+    [/^↓ (.+) CSV$/, '↓ $1 CSV'],
+    [/^the (\d+) weeks to (.+)$/, '截至 $2 的 $1 周'],
+    [/^the (\d+) months to (.+)$/, '截至 $2 的 $1 个月'],
+    [/^the (\d+) years to (.+)$/, '截至 $2 的 $1 年'],
+    /* --- fragments of alerts that carry a link: translated in place, so the
+           link and the handler on it survive --- */
+    [/^Service overdue by ([\d,]+) km$/, '保养已逾期 $1 公里'],
+    [/^Service overdue$/, '保养已逾期'],
+    [/^Service due in (\d+) days?$/, '$1 天后需保养'],
+    [/^Service due in (\d+) day\(s\)$/, '$1 天后需保养'],
+    [/^Service due in ([\d,]+) km$/, '还有 $1 公里需保养'],
+    [/^Insurance expires in (\d+) day\(s\)$/, '保险 $1 天后到期'],
+    [/^Road tax expires in (\d+) day\(s\)$/, '路税 $1 天后到期'],
+    [/^Inspection expires in (\d+) day\(s\)$/, '年检 $1 天后到期'],
+    [/^Insurance expired (\d+) day\(s\) ago$/, '保险已过期 $1 天'],
+    [/^Road tax expired (\d+) day\(s\) ago$/, '路税已过期 $1 天'],
+    [/^Inspection expired (\d+) day\(s\) ago$/, '年检已过期 $1 天'],
+    [/^Open breakdown (\d{4}-\d{2}-\d{2})$/, '未结故障 $1'],
+    [/^back on the road (\d{4}-\d{2}-\d{2})$/, '$1 恢复运行'],
+    [/^(\d+) day\(s\) this month have a shift with nobody on it$/, '本月有 $1 天班次无人当班'],
+    [/^The shift pattern averages ([\d.]+)h a week, inside the (\d+)h norm — the (\S+) comes from work landing unevenly: (.+) books ([\d.]+)h this month while (.+) books ([\d.]+)h\. Re-run$/,
+      '班次安排平均每周 $1 小时，仍在 $2 小时标准之内 — $3 来自工作分配不均：本月 $4 为 $5 小时，而 $6 只有 $7 小时。重新运行'],
+    [/^The shift pattern averages ([\d.]+)h a week, inside the (\d+)h norm — the (\S+) comes from work landing unevenly\. Re-run$/,
+      '班次安排平均每周 $1 小时，仍在 $2 小时标准之内 — $3 来自工作分配不均。重新运行'],
+    [/^last ([\d,]+) km$/, '最近 $1 公里'],
+    [/^overtime at ([\d.]+)× is$/, '加班按 $1 倍计为'],
+    [/^Cannot estimate$/, '无法估算'],
+    [/^(\d+)ft$/, '$1 尺'],
+    [/^([\d.]+) km straight line × ([\d.]+)$/, '直线 $1 公里 × $2'],
+    /* keep this one last — it is the loosest shape in the list */
+    [/^(.+) \((.+)\)$/, '$1（$2）'],
+  ],
+  /* One word looked up in the dictionaries: exact phrase first, then the
+     app's own seeded values (shift names, vehicle classes), then the
+     number-carrying shapes. No recursion, so seg() can call it safely. */
+  lookup(k){
+    if(this.dict[k]!==undefined) return this.dict[k];
+    if(this.data[k]!==undefined) return this.data[k];
+    for(let i=0;i<this.patterns.length;i++){
+      const m=k.match(this.patterns[i][0]);
+      if(!m) continue;
+      let out=this.patterns[i][1];
+      for(let g=m.length-1; g>=1; g--){
+        const piece=m[g]==null? '' : m[g], key2=piece.trim();
+        let rep=this.dict[key2]!==undefined? this.dict[key2]
+              : this.data[key2]!==undefined? this.data[key2] : null;
+        const sub= rep===null? piece : piece.replace(key2,rep);
+        out=out.split('$'+g).join(sub);
+      }
+      return out;
+    }
+    return null;
+  },
+  /* Tooltips, headings and alert lines are assembled by the app from a few
+     known pieces plus live data — a plate, a date, a driver's name. Listing
+     every combination would be hopeless, so when the whole string is unknown,
+     split it on its separators and translate the pieces that ARE known. A name
+     or an address matches nothing and comes back exactly as it was typed. */
+  seps:/(\s*[\u00b7\u2014\u2013|]\s*|\s*[:\uff1a]\s+|\s*\/\s*|\s+\u2192\s+)/,
+  seg(k){
+    if(k.length<3) return null;
+    const parts=k.split(this.seps);
+    if(parts.length<3) return null;
+    let changed=false;
+    const out=parts.map((piece,i)=>{
+      if(i%2) return piece===': '? '：' : piece;   // the separator itself
+      const key=piece.trim();
+      if(!key) return piece;
+      const hit=this.lookup(key);
+      if(hit===null) return piece;
+      changed=true;
+      return piece.replace(key,hit);
+    });
+    return changed? out.join('') : null;
+  },
+  t(str){
+    const k=String(str);
+    const hit=this.lookup(k);
+    return hit!==null? hit : this.seg(k);
+  },
+  /* Walk what is on screen and swap anything the dictionary knows. The DOM is
+     rebuilt from the English source on every render, so this never compounds,
+     and a driver's name or a plate can only change if it happens to equal a
+     dictionary key exactly — which no name does. */
+  /* Warnings and explanatory notes are one paragraph with <b> and <a> inside,
+     so they arrive as several text nodes. Matching them fragment by fragment is
+     brittle; match the whole block on its combined text instead and replace the
+     block. Anything replaced is marked so the text walker leaves it alone. */
+  applyBlocks(scope){
+    const sel='.alert, .empty, .tiny, p, li, .cm > span, .job .jm, .cand .cn';
+    /* querySelectorAll skips the scope element itself, and a panel redrawn by
+       its own handler IS the block -- include it. */
+    const list=Array.prototype.slice.call(scope.querySelectorAll(sel));
+    if(scope.matches && scope.matches(sel)) list.unshift(scope);
+    list.forEach(el=>{
+      /* A panel the app redraws itself (the pay preview, the distance
+         estimate) keeps the done-flag from its previous content, which would
+         hide the new English from the walker. Trust the flag only while the
+         markup is still the markup we wrote. */
+      if(el.dataset.i18nDone){
+        if(this.wrote.get(el)===el.innerHTML) return;
+        delete el.dataset.i18nDone;
+      }
+      if(el.querySelector(sel)) return;                 // only innermost blocks
+      /* Replacing innerHTML would throw away a link or button and the handler
+         attached to it, so leave those blocks to the text walker, which swaps
+         each fragment in place and leaves the controls working. */
+      if(el.querySelector('a, button, input, select, textarea')) return;
+      const key=(el.textContent||'').replace(/\s+/g,' ').trim();
+      if(!key || key.length<8) return;
+      let hit=this.blocks[key];
+      if(hit===undefined){
+        for(let i=0;i<this.blockPatterns.length;i++){
+          const m=key.match(this.blockPatterns[i][0]);
+          if(!m) continue;
+          hit=this.blockPatterns[i][1];
+          for(let g=m.length-1; g>=1; g--){
+            const piece=m[g]==null?'':m[g], key2=piece.trim();
+            const rep=this.dict[key2]!==undefined? this.dict[key2]
+                    : this.data[key2]!==undefined? this.data[key2] : null;
+            const sub= rep===null? piece : piece.replace(key2,rep);
+            hit=hit.split('$'+g).join(sub);
+          }
+          break;
+        }
+      }
+      if(hit!==undefined){
+        if(!this.wasHtml.has(el)) this.wasHtml.set(el, el.innerHTML);
+        el.innerHTML=hit; el.dataset.i18nDone='1'; this.wrote.set(el, el.innerHTML);
+      }
+    });
+  },
+  /* The views are rebuilt from their English source on every render, but the
+     sidebar, the header and the modal frame are static markup — translated in
+     place, they would stay Chinese forever. Remember what each one said and
+     put it back when the language goes to English. WeakMaps, so a node the
+     next render throws away is collected with it. */
+  was:new WeakMap(), wasHtml:new WeakMap(), wrote:new WeakMap(),
+  revert(root){
+    const scope=root||document.body;
+    Array.prototype.slice.call(scope.querySelectorAll('*')).forEach(el=>{
+      if(this.wasHtml.has(el)){ el.innerHTML=this.wasHtml.get(el); this.wasHtml.delete(el); }
+      if(el.dataset && el.dataset.i18nDone) delete el.dataset.i18nDone;
+    });
+    const walker=document.createTreeWalker(scope, NodeFilter.SHOW_TEXT, null);
+    const jobs=[]; let n;
+    while((n=walker.nextNode())) jobs.push(n);
+    jobs.forEach(node=>{ if(this.was.has(node)){ node.nodeValue=this.was.get(node); this.was.delete(node); } });
+    scope.querySelectorAll('[data-ph0]').forEach(el=>{ el.setAttribute('placeholder', el.dataset.ph0); });
+    scope.querySelectorAll('[data-ti0]').forEach(el=>{ el.setAttribute('title', el.dataset.ti0); });
+  },
+  apply(root){
+    if(LANG!=='zh') return;
+    const scope=root||document.body;
+    this.applyBlocks(scope);
+    const walker=document.createTreeWalker(scope, NodeFilter.SHOW_TEXT, {
+      acceptNode(n){
+        if(!n.nodeValue || !n.nodeValue.trim()) return NodeFilter.FILTER_REJECT;
+        const p=n.parentNode;
+        if(!p || p.nodeName==='SCRIPT' || p.nodeName==='STYLE') return NodeFilter.FILTER_REJECT;
+        for(let q=p; q && q!==document.body; q=q.parentNode)
+          if(q.dataset && q.dataset.i18nDone) return NodeFilter.FILTER_REJECT;
+        return NodeFilter.FILTER_ACCEPT;
+      }});
+    const jobs=[]; let n;
+    while((n=walker.nextNode())) jobs.push(n);
+    jobs.forEach(node=>{
+      const raw=node.nodeValue, trimmed=raw.trim();
+      let hit=this.t(trimmed);
+      if(hit===null){                                    // whole paragraphs, e.g.
+        const blk=this.blocks[trimmed];                  // a checkbox label
+        if(blk!==undefined && blk.indexOf('<')<0) hit=blk;
+      }
+      if(hit!==null && hit!==trimmed){
+        if(!this.was.has(node)) this.was.set(node, raw);   // keep the English
+        node.nodeValue=raw.replace(trimmed, hit);
+      }
+    });
+    scope.querySelectorAll('[placeholder]').forEach(el=>{
+      if(el.dataset.ph0===undefined) el.dataset.ph0=el.getAttribute('placeholder')||'';
+      const hit=this.t(el.dataset.ph0); if(hit) el.setAttribute('placeholder',hit);
+    });
+    scope.querySelectorAll('[title]').forEach(el=>{
+      if(el.dataset.ti0===undefined) el.dataset.ti0=el.getAttribute('title')||'';
+      const hit=this.t(el.dataset.ti0); if(hit) el.setAttribute('title',hit);
+    });
+  },
+  set(lang){
+    LANG = (lang==='zh')? 'zh':'en';
+    try{ localStorage.setItem('da.lang', LANG); }catch(e){}
+    const dow = LANG==='zh'? DOW_ZH : DOW_EN, mon = LANG==='zh'? MON_ZH : MON_EN;
+    for(let i=0;i<7;i++) DOW[i]=dow[i];
+    for(let i=0;i<12;i++) MON[i]=mon[i];
+    document.documentElement.lang = LANG==='zh'? 'zh-Hans':'en';
+    if(LANG==='en') this.revert(document.body);
+    Render.all();
+  }
+};
+
 /* ------------------------------ modal ------------------------------- */
 const UI = {
   open(title, body, foot, wide){
@@ -2114,6 +2858,7 @@ const UI = {
     $('#mdlFoot').innerHTML=foot||'<button class="btn" onclick="UI.close()">Close</button>';
     $('#mdl').classList.toggle('wide',!!wide);
     $('#ovl').classList.add('on');
+    I18N.apply($('#mdl'));
   },
   close(){ $('#ovl').classList.remove('on'); },
   confirm(msg, onYes, yesLabel){
@@ -2135,6 +2880,7 @@ const Render = {
     const openCovers = Rules.covers().filter(c=>!c.settled).length;
     const nc=$('#navCover'); nc.textContent=openCovers; nc.classList.toggle('hidden', openCovers===0);
     $$('#nav button').forEach(b=>b.classList.toggle('on', b.dataset.v===VIEW));
+    $$('#langSeg button').forEach(b=>b.classList.toggle('on', b.dataset.lang===LANG));
     const titles={today:'Today',roster:'Roster',cover:'Cover & Credits',jobs:'Standby Jobs',
       fleet:'Lorries & Workshop',cost:'Pay & Overtime Cost',regular:'Regular Jobs',stats:'Reports',
       owner:'Owner Summary',
@@ -2146,6 +2892,7 @@ const Render = {
     ({today:this.today, roster:this.roster, cover:this.cover, jobs:this.jobs, fleet:this.fleet,
       cost:this.cost, regular:this.regular, stats:this.stats, owner:this.owner,
       drivers:this.drivers, settings:this.settings}[VIEW]||this.today).call(this);
+    I18N.apply(document.body);
   },
 
   /* ------------------------------ TODAY ----------------------------- */
@@ -3621,7 +4368,8 @@ const Flow = {
         ? 'Hourly basic rate <b>'+Pay.money(Pay.hourly(tmp))+'</b> · one day\'s salary <b>'+Pay.money(Pay.daily(tmp))+
           '</b> · overtime at '+(S.settings.otMultiplier||1.5)+'× is <b>'+Pay.money(Pay.otRate(tmp))+'/h</b>'+
           (Pay.covered(tmp)? '' : ' · <span style="color:var(--warn)">above the Part 4 cap, so overtime pay is contractual rather than statutory</span>')
-        : 'Enter a basic salary and the hourly and overtime rates appear here.'; };
+        : 'Enter a basic salary and the hourly and overtime rates appear here.';
+      I18N.apply($('#_rate')); };
     ['#d_ptype','#d_basic','#d_role','#d_otel'].forEach(sel=>{ const el=$(sel); if(el){ el.oninput=showRate; el.onchange=showRate; } });
     showRate();
     if(id) $('#d_del').onclick=()=>UI.confirm('Delete '+d.name+'? Their roster history stays but the driver is removed.',()=>{Act.removeDriver(id);UI.close();},'Delete');
@@ -3781,11 +4529,13 @@ const Flow = {
       const box=$('#_est'); if(!box) return;
       const typed=$('#j_km').value!=='';
       if(e.km==null){ box.innerHTML='<span style="color:var(--warn)">Cannot estimate — '+esc(e.why)+
-        '. Put the town or the postal code in the address, or type the distance in.</span>'; return; }
+        '. Put the town or the postal code in the address, or type the distance in.</span>';
+        I18N.apply(box); return; }
       box.innerHTML='Estimated <b>'+e.km+' km</b> <span class="muted">('+esc(e.why)+
         ', '+e.straight+' km straight line × '+Dist.factor()+')</span>'+
         (typed? ' — the figure you typed is used instead.' : ' — used unless you type a distance above.')+
         ' <a href="#" id="_useEst">use it</a>';
+      I18N.apply(box);
       const a2=$('#_useEst'); if(a2) a2.onclick=(ev)=>{ ev.preventDefault(); $('#j_km').value=e.km; showEst(); };
     };
     ['#j_pu','#j_do','#j_km'].forEach(sel=>{ const el=$(sel); if(el){ el.oninput=showEst; el.onchange=showEst; } });
@@ -4779,9 +5529,16 @@ $('#themeBtn').onclick=()=>{
   document.documentElement.setAttribute('data-theme',cur);
   try{ localStorage.setItem('da.theme',cur); }catch(e){}
 };
+$$('#langSeg button').forEach(b=> b.onclick=()=>I18N.set(b.dataset.lang));
 (function boot(){
   try{ const t=localStorage.getItem('da.theme'); if(t) document.documentElement.setAttribute('data-theme',t);
        else if(window.matchMedia&&matchMedia('(prefers-color-scheme:dark)').matches) document.documentElement.setAttribute('data-theme','dark');
+  }catch(e){}
+  try{ const l=localStorage.getItem('da.lang');
+       if(l==='zh'){ LANG='zh';
+         for(let i=0;i<7;i++) DOW[i]=DOW_ZH[i];
+         for(let i=0;i<12;i++) MON[i]=MON_ZH[i];
+         document.documentElement.lang='zh-Hans'; }
   }catch(e){}
   DB.loadLocal();
   const cfg=DB.loadCfg() || DEFAULT_CFG;      // ships pointed at the OctoCRM project, own data path
